@@ -59,15 +59,30 @@ taskRoute.post(
 	}
 );
 
-taskRoute.put('/:id', async (context) => {
-	const id = context.req.param('id');
-	const body = await context.req.json();
-	const task = { id, ...body };
+taskRoute.put(
+	'/:id',
+	zValidator(
+		'json',
+		z.object({
+			title: z.string().min(1),
+			description: z.string().optional(),
+			status: z.enum(['pending', 'in_progress', 'completed', 'cancelled']),
+			priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
+			tags: z.array(z.string().min(1)).optional(),
+			expiresAt: z.coerce.date().optional(),
+			completedAt: z.coerce.date().optional(),
+		})
+	),
+	async (context) => {
+		const id = context.req.param('id');
+		const body = await context.req.json();
+		const task = { id, ...body };
 
-	await context.env.KV_TASKS.put(id, JSON.stringify(task));
+		await context.env.KV_TASKS.put(id, JSON.stringify(task));
 
-	return context.json(task);
-});
+		return context.json(task);
+	}
+);
 
 taskRoute.delete('/:id', async (context) => {
 	const id = context.req.param('id');
