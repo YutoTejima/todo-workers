@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { taskRoute } from './Route/TaskRoute';
 import { cors } from 'hono/cors';
+import { userRoute } from './Route/UserRoute';
 
 const app = new Hono<{ Bindings: Env }>();
 app
@@ -10,7 +11,8 @@ app
 			origin: ['http://localhost:5173'],
 		})
 	)
-	.route('/api/v1/tasks', taskRoute);
+	.route('/api/v1/tasks', taskRoute)
+	.route('/api/v1/users', userRoute);
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {

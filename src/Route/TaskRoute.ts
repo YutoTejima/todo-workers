@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { TaskEntity } from '../Entity/TaskEntity';
 import { zValidator } from '@hono/zod-validator';
 import z from 'zod';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '@prisma/client';
 
 export const taskRoute = new Hono<{ Bindings: Env }>();
 
@@ -39,7 +41,6 @@ taskRoute.post(
 		z.object({
 			title: z.string().min(1),
 			description: z.string().optional(),
-			status: z.enum(['pending', 'in_progress', 'completed', 'cancelled']),
 			priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
 			tags: z.array(z.string().min(1)).optional(),
 			expiresAt: z.coerce.date().optional(),
@@ -47,13 +48,53 @@ taskRoute.post(
 		})
 	),
 	async (context) => {
-		const id = crypto.randomUUID();
-		const body = await context.req.json();
+		const body = await context.req.valid('json');
 
-		const task: TaskEntity = { id, ...body };
+		// Hyperdrive の接続情報を使用して Prisma を初期化
+		const adapter = new PrismaPg({ connectionString: context.env.HYPERDRIVE.connectionString });
+		const prisma = new PrismaClient({ adapter });
 
-		console.log(task);
-		await context.env.KV_TASKS.put(id, JSON.stringify(task));
+		// タスクをリレーション関係のデータと一度に作成
+		const task = await prisma.task.create({
+			data: {
+				userId: 1,
+				title: body.title,
+				description: body.description,
+				status: 'pending',
+				priority: body.priority,
+				expiresAt: body.expiresAt,
+
+				// タグをリレーション関係のデータと一度に作成
+				taskTags: {
+					create: body.tags?.map((tagName) => ({
+						tag: {
+							connectOrCreate: {
+								where: {
+									userId_name: {
+										userId: 1,
+										name: tagName,
+									},
+								},
+								create: {
+									userId: 1,
+									name: tagName,
+									color: '000000',
+								},
+							},
+						},
+					})),
+				},
+			},
+
+			// リレーション関係のデータも取得
+			include: {
+				taskTags: {
+					include: {
+						tag: true,
+					},
+				},
+			},
+		});
 
 		return context.json(task);
 	}
