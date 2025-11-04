@@ -4,7 +4,21 @@ import { PrismaClient } from '@prisma/client';
 import { Hono } from 'hono';
 import z from 'zod';
 
-export const userRoute = new Hono<{ Bindings: Env }>();
+interface Variables {
+	prisma: PrismaClient;
+}
+
+export const userRoute = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+userRoute.use('/*', async (context, next) => {
+	// Hyperdrive の接続情報を使用して Prisma を初期化
+	const adapter = new PrismaPg({ connectionString: context.env.HYPERDRIVE.connectionString });
+	const prisma = new PrismaClient({ adapter });
+
+	context.set('prisma', prisma);
+
+	await next();
+});
 
 userRoute.post(
 	'/',
@@ -18,9 +32,7 @@ userRoute.post(
 	async (context) => {
 		const body = await context.req.valid('json');
 
-		// Hyperdrive の接続情報を使用して Prisma を初期化
-		const adapter = new PrismaPg({ connectionString: context.env.HYPERDRIVE.connectionString });
-		const prisma = new PrismaClient({ adapter });
+		const prisma = context.get('prisma');
 
 		// ユーザーを作成
 		const user = await prisma.user.create({
@@ -30,6 +42,7 @@ userRoute.post(
 			},
 		});
 
+		// ユーザーを HTTPレスポンスで返却
 		return context.json(user);
 	}
 );
