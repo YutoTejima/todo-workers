@@ -43,7 +43,7 @@ taskRoute.use('/*', async (context, next) => {
 		where: { id: accessToken },
 	});
 
-	// セッションが泣ければ401エラーを返す
+	// セッションが無ければ401エラーを返す
 	if (!session) {
 		return context.json({ error: 'Unauthorized' }, 401);
 	}
