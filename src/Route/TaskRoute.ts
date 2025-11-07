@@ -1,45 +1,116 @@
 import { Hono } from 'hono';
-import { TaskEntity } from '../Entity/TaskEntity';
 import { zValidator } from '@hono/zod-validator';
 import z from 'zod';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient, Session } from '@prisma/client';
 
-export const taskRoute = new Hono<{ Bindings: Env }>();
+// Hono のコンテキストで使用する変数の型定義
+interface Variables {
+	prisma: PrismaClient;
+	session?: Session;
+}
 
-taskRoute.get('', async (context) => {
-	const list = await context.env.KV_TASKS.list();
-	const tasks: TaskEntity[] = [];
+// タスク系 API をまとめるサブルーター
+export const taskRoute = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-	for (const key of list.keys) {
-		console.log(key.name);
-		const task = await context.env.KV_TASKS.get<TaskEntity>(key.name, 'json');
+// taskRoute で共通して実行するミドルウェア
+taskRoute.use('/*', async (context, next) => {
+	// Hyperdrive の接続情報を使用して Prisma を初期化
+	const adapter = new PrismaPg({ connectionString: context.env.HYPERDRIVE.connectionString });
+	const prisma = new PrismaClient({ adapter });
 
-		if (!task) {
-			continue;
-		}
-		tasks.push(task);
+	// 初期化した Prisma を context に格納して使えるようにする
+	context.set('prisma', prisma);
+
+	await next();
+});
+
+// 認証ミドルウェア
+taskRoute.use('/*', async (context, next) => {
+	// Authorization ヘッダーからアクセストークンを作成
+	const accessToken = context.req.header('Authorization')?.split(' ').pop();
+
+	// アクセストークンが無ければ401エラーを返す
+	if (!accessToken) {
+		return context.json({ error: 'Unauthorized' }, 401);
 	}
+
+	// Prisma クライアントを取得
+	const prisma = context.get('prisma');
+
+	// アクセストークンに対応するセッションを作成
+	const session = await prisma.session.findUnique({
+		where: { id: accessToken },
+	});
+
+	// セッションが泣ければ401エラーを返す
+	if (!session) {
+		return context.json({ error: 'Unauthorized' }, 401);
+	}
+
+	// 初期化した session を context に格納して使えるようにする
+	context.set('session', session);
+
+	await next();
+});
+
+// タスク一覧取得 API
+// - タスク本体に加えて、多対多の中間テーブル taskTags と、その先の tag も同時に取得
+taskRoute.get('', async (context) => {
+	// Prisma クライアントを取得
+	const prisma = context.get('prisma');
+
+	// task を全て取得しつつ、中間テーブルから tag の情報も取得
+	// 条件に一致する task を取得（今回は条件なし）
+	const tasks = await prisma.task.findMany({
+		// 中間テーブルから tag の情報を取得
+		include: {
+			taskTags: {
+				include: {
+					tag: true,
+				},
+			},
+		},
+	});
+
 	return context.json(tasks);
 });
 
+// id が一致するタスク取得 API
 taskRoute.get('/:id', async (context) => {
+	// パラメーターからタスクの id を取得
 	const id = context.req.param('id');
-	const task = await context.env.KV_TASKS.get(id, 'json');
 
-	if (!task) {
-		return context.json({ message: 'タスクが見つかりません' }, 404);
-	}
-	console.log(task);
+	// Prisma クライアントを取得
+	const prisma = context.get('prisma');
+
+	// id が一致するタスクを 1 件取得
+	const task = await prisma.task.findUnique({
+		where: {
+			id: Number(id),
+		},
+		// ついでに中間テーブルから tag の情報も取得
+		include: {
+			taskTags: {
+				include: {
+					tag: true,
+				},
+			},
+		},
+	});
+
 	return context.json(task);
 });
 
+// タスク作成 API
 taskRoute.post(
 	'',
+	// 入力を Zod で厳密に定義
 	zValidator(
 		'json',
 		z.object({
 			title: z.string().min(1),
 			description: z.string().optional(),
-			status: z.enum(['pending', 'in_progress', 'completed', 'cancelled']),
 			priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
 			tags: z.array(z.string().min(1)).optional(),
 			expiresAt: z.coerce.date().optional(),
@@ -47,26 +118,72 @@ taskRoute.post(
 		})
 	),
 	async (context) => {
-		const id = crypto.randomUUID();
-		const body = await context.req.json();
+		// リクエストボディを取得
+		const body = await context.req.valid('json');
 
-		const task: TaskEntity = { id, ...body };
+		// Prisma クライアントを取得
+		const prisma = context.get('prisma');
 
-		console.log(task);
-		await context.env.KV_TASKS.put(id, JSON.stringify(task));
+		// タスクをリレーション関係のデータと共に作成
+		const task = await prisma.task.create({
+			data: {
+				userId: 1,
+				title: body.title,
+				description: body.description,
+				status: 'pending',
+				priority: body.priority,
+				expiresAt: body.expiresAt,
+
+				// タグをリレーション関係のデータと共に一度に作成
+				taskTags: {
+					// 受け取った tagName ごとに、既存タグがあれば接続・無ければ作成
+					create: body.tags?.map((tagName) => ({
+						tag: {
+							connectOrCreate: {
+								where: {
+									userId_name: {
+										// userId と name の複合ユニークキー（同一ユーザーで同名タグは1つ）
+										userId: 1,
+										name: tagName,
+									},
+								},
+								create: {
+									userId: 1,
+									name: tagName,
+									color: '000000',
+								},
+							},
+						},
+					})),
+				},
+			},
+
+			// リレーション関係のデータも取得
+			include: {
+				taskTags: {
+					include: {
+						tag: true,
+					},
+				},
+			},
+		});
 
 		return context.json(task);
 	}
 );
 
-taskRoute.put(
+// タスク変更 API
+// - 部分更新（渡されたフィールドだけ更新）
+// - タグは「全削除→新規作成」で完全置き換え
+taskRoute.patch(
 	'/:id',
+	// 入力を Zod で厳密に定義
 	zValidator(
 		'json',
 		z.object({
-			title: z.string().min(1),
+			title: z.string().min(1).optional(),
 			description: z.string().optional(),
-			status: z.enum(['pending', 'in_progress', 'completed', 'cancelled']),
+			status: z.enum(['pending', 'inProgress', 'completed', 'cancelled']).optional(),
 			priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
 			tags: z.array(z.string().min(1)).optional(),
 			expiresAt: z.coerce.date().optional(),
@@ -74,19 +191,111 @@ taskRoute.put(
 		})
 	),
 	async (context) => {
+		// パラメーターから id を取得
 		const id = context.req.param('id');
+		// リクエストボディを検証
 		const body = await context.req.json();
-		const task = { id, ...body };
+		// Prisma クライアントを取得
+		const prisma = context.get('prisma');
 
-		await context.env.KV_TASKS.put(id, JSON.stringify(task));
+		// 既存タスクの存在をチェック
+		const existingTask = await prisma.task.findUnique({
+			where: {
+				id: Number(id),
+			},
+		});
+
+		// id に一致するタスクが無ければ 404 エラー
+		if (!existingTask) {
+			return context.json({ error: 'Task not found' }, 404);
+		}
+
+		// id に一致するタスクを更新
+		const task = await prisma.task.update({
+			where: { id: Number(id) },
+			data: {
+				title: body.title,
+				description: body.description,
+				status: body.status,
+				priority: body.priority,
+				expiresAt: body.expiresAt,
+
+				// 既存のタグを全て削除してから新しいタグを設定
+				taskTags: (() => {
+					// tags が未指定なら触らない
+					if (!body.tags) {
+						return undefined;
+					}
+
+					return {
+						// このタスクに紐づく中間テーブルを全削除
+						deleteMany: {},
+						// 新しいタグセットを作成
+						create: body.tags?.map((tagName: String) => ({
+							tag: {
+								// tagName がすでにあれば接続、無ければ tag を新しく作成
+								connectOrCreate: {
+									// ユーザーごとの 同名タグが存在するかを複合ユニークキーで判定
+									where: {
+										userId_name: {
+											userId: 1,
+											name: tagName,
+										},
+									},
+									// 無ければ tag を新しく作成
+									create: {
+										userId: 1,
+										name: tagName,
+										color: '000000',
+									},
+								},
+							},
+						})),
+					};
+				})(),
+			},
+
+			// リレーション関係のデータも取得
+			include: {
+				taskTags: {
+					include: {
+						tag: true,
+					},
+				},
+			},
+		});
 
 		return context.json(task);
 	}
 );
 
+// タスク削除 API
 taskRoute.delete('/:id', async (context) => {
+	// パラメーターから id を取得
 	const id = context.req.param('id');
-	await context.env.KV_TASKS.delete(id);
 
+	// Prisma クライアントを取得
+	const prisma = context.get('prisma');
+
+	// id が一致するタスクを確認
+	const task = await prisma.task.findUnique({
+		where: {
+			id: Number(id),
+		},
+	});
+
+	// id が一致するタスクが無ければ404エラーを返す
+	if (!task) {
+		return context.json({ error: 'Task not found' }, 404);
+	}
+
+	// id が一致するタスクを削除
+	await prisma.task.delete({
+		where: {
+			id: Number(id),
+		},
+	});
+
+	// 削除成功のメッセージを出す
 	return context.json({ message: `タスクid:(${id})を削除しました` });
 });

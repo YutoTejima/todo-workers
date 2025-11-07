@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator markdown {
+  provider = "prisma-markdown"
+  output   = "../ERD.md"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    Int      @db.Integer
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  email     String    @unique @db.VarChar(255)
+  password  String    @db.VarChar(255)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  tasks     Task[]
+  tags      Tag[]
+  session   Session[]
+}
+
+enum TaskStatus {
+  pending
+  inProgress @map("in-progress")
+  completed
+  cancelled
+}
+
+enum TaskPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+model Task {
+  id          Int           @id @default(autoincrement())
+  userId      Int           @db.Integer
+  title       String        @db.VarChar(255)
+  description String        @default("") @db.Text
+  status      TaskStatus
+  priority    TaskPriority?
+  expiresAt   DateTime?
+  completedAt DateTime?
+  user        User          @relation(fields: [userId], references: [id])
+  taskTags    TaskTag[]
+}
+
+model Tag {
+  id       Int       @id @default(autoincrement())
+  userId   Int       @db.Integer
+  name     String    @db.VarChar(255)
+  color    String    @db.VarChar(6)
+  user     User      @relation(fields: [userId], references: [id])
+  taskTags TaskTag[]
+
+  @@unique([userId, name])
+}
+
+model TaskTag {
+  taskId Int
+  tagId  Int
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+}

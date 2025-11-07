@@ -4,19 +4,23 @@
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",
-		"dev": "wrangler dev",
+		"dev": "wrangler dev --remote",
 		"start": "wrangler dev",
 		"test": "vitest",
 		"cf-typegen": "wrangler types"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.8.19",
+		"prisma": "^6.18.0",
+		"prisma-markdown": "^3.0.1",
 		"typescript": "^5.5.2",
 		"vitest": "~3.2.0",
-		"wrangler": "^4.34.0"
+		"wrangler": "^4.45.1"
 	},
 	"dependencies": {
 		"@hono/zod-validator": "^0.7.2",
+		"@prisma/adapter-pg": "6.18.0",
+		"@prisma/client": "^6.18.0",
 		"hono": "^4.9.6",
 		"zod": "^4.1.8"
 	}

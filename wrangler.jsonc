@@ -6,14 +6,21 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "todo-worker",
 	"main": "src/index.ts",
+	"compatibility_flags": ["nodejs_compat"],
 	"compatibility_date": "2025-09-05",
 	"observability": {
 		"enabled": true
 	},
-	"kv_namespaces": [
+	// "kv_namespaces": [
+	// 	{
+	// 		"binding": "KV_TASKS",
+	// 		"id": "39a8e43ab65040cf8e3ac7d2a7114781"
+	// 	}
+	// ],
+	"hyperdrive": [
 		{
-			"binding": "KV_TASKS",
-			"id": "39a8e43ab65040cf8e3ac7d2a7114781"
+			"binding": "HYPERDRIVE",
+			"id": "284566b89f61401f9e44346bf43e6d5e"
 		}
 	]
 }
