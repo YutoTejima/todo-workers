@@ -60,9 +60,20 @@ taskRoute.get('', async (context) => {
 	// Prisma クライアントを取得
 	const prisma = context.get('prisma');
 
+	// session を取得
+	const session = context.get('session');
+
+	if (!session) {
+		return context.json({ error: 'Unauthorized' }, 401);
+	}
+
 	// task を全て取得しつつ、中間テーブルから tag の情報も取得
 	// 条件に一致する task を取得（今回は条件なし）
 	const tasks = await prisma.task.findMany({
+		// ログインしているユーザーが所有するタスクのみ表示
+		where: {
+			userId: session?.userId,
+		},
 		// 中間テーブルから tag の情報を取得
 		include: {
 			taskTags: {
@@ -98,6 +109,19 @@ taskRoute.get('/:id', async (context) => {
 			},
 		},
 	});
+
+	// タスクがなければ 404
+	if (!task) {
+		return context.json({ error: 'Task not found' }, 404);
+	}
+
+	// session を取得
+	const session = context.get('session');
+
+	// 閲覧しているタスクの所有者と現在ログインしているユーザーのIDが一致していなければ 403 エラー
+	if (session?.userId !== task.userId) {
+		return context.json({ error: 'Forbidden' }, 403);
+	}
 
 	return context.json(task);
 });
@@ -210,6 +234,14 @@ taskRoute.patch(
 			return context.json({ error: 'Task not found' }, 404);
 		}
 
+		// session を取得
+		const session = context.get('session');
+
+		// 変更しているタスクの所有者と現在ログインしているユーザーのIDが一致していなければ 403 エラー
+		if (session?.userId !== existingTask.userId) {
+			return context.json({ error: 'Forbidden' }, 403);
+		}
+
 		// id に一致するタスクを更新
 		const task = await prisma.task.update({
 			where: { id: Number(id) },
@@ -284,9 +316,17 @@ taskRoute.delete('/:id', async (context) => {
 		},
 	});
 
-	// id が一致するタスクが無ければ404エラーを返す
+	// id が一致するタスクが無ければ 404 エラー
 	if (!task) {
 		return context.json({ error: 'Task not found' }, 404);
+	}
+
+	// session を取得
+	const session = context.get('session');
+
+	// 消そうとしているタスクの所有者と現在ログインしているユーザーのIDが一致していなければ 403 エラー
+	if (session?.userId !== task.userId) {
+		return context.json({ error: 'Forbidden' }, 403);
 	}
 
 	// id が一致するタスクを削除
