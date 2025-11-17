@@ -3,6 +3,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import { Hono } from 'hono';
 import z from 'zod';
+import { stretchHash } from '../hash';
 
 // Hono のコンテキストで使用する変数の型定義
 // - context.set('prisma', ...) / context.get('prisma') で受け渡すキーと型を定義
@@ -49,17 +50,32 @@ authRoute.post(
 		// Prisma クライアントを取得
 		const prisma = context.get('prisma');
 
+		// 1秒待つ
+		// await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 1000)));
+
+		// だいたい1秒待つ
+		const randomNumber = crypto.getRandomValues(new Uint32Array(1))[0];
+		await new Promise((resolve) => setTimeout(resolve, Math.floor(randomNumber / 4_000_000)));
+
 		// メールアドレスとパスワードの一致でユーザーを検索
 		const user = await prisma.user.findUnique({
 			where: {
 				email: body.email,
-				password: body.password,
 			},
 		});
 
 		// ユーザーが存在しない場合は401エラーを返却
 		if (!user) {
 			return context.json({ error: 'Invalid email or password' }, 401);
+		}
+
+		// パスワードをハッシュとソルトに分解
+		const [hashedPassword, salt] = user.password.split('.');
+		const hashedInputPassword = await stretchHash(body.password + '.' + salt, 100);
+
+		// ハッシュ化したパスワードが一致しない場合はエラーを返却
+		if (hashedPassword !== hashedInputPassword) {
+			return context.json({ error: 'Invalid email or password' });
 		}
 
 		// 24 時間有効のセッションを作成

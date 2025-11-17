@@ -3,6 +3,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import { Hono } from 'hono';
 import z from 'zod';
+import { stretchHash } from '../hash';
 
 // Hono のコンテキストで使用する変数の型定義
 // - context.set('prisma', ...) / context.get('prisma') で受け渡すための型を定義
@@ -44,11 +45,27 @@ userRoute.post(
 		// Prisma クライアントを取得
 		const prisma = context.get('prisma');
 
+		// 同じアドレスのユーザーが既に存在していないかの確認
+		const existingUser = await prisma.user.findUnique({
+			where: {
+				email: body.email,
+			},
+		});
+
+		// 存在していたらメッセージを出す
+		if (existingUser) {
+			return context.json({ error: 'User already exists' }, 400);
+		}
+
+		// ランダムなソルトを生成
+		const salt = crypto.randomUUID();
+		const hashedPassword = await stretchHash(body.password + '.' + salt, 100);
+
 		// ユーザーを作成（DB のユニーク制約に違反した場合はエラーになる）
 		const user = await prisma.user.create({
 			data: {
 				email: body.email,
-				password: body.password,
+				password: hashedPassword + '.' + salt,
 			},
 		});
 

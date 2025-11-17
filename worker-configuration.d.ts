@@ -7,7 +7,9 @@ declare namespace Cloudflare {
 		HYPERDRIVE: Hyperdrive;
 	}
 }
-interface Env extends Cloudflare.Env {}
+interface Env extends Cloudflare.Env {
+	HASH_SALT: string;
+}
 
 // Begin runtime types
 /*! *****************************************************************************

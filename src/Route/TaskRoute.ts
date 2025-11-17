@@ -147,11 +147,16 @@ taskRoute.post(
 
 		// Prisma クライアントを取得
 		const prisma = context.get('prisma');
+		const session = context.get('session');
+
+		if (!session) {
+			return context.json({ error: 'Unauthorized' });
+		}
 
 		// タスクをリレーション関係のデータと共に作成
 		const task = await prisma.task.create({
 			data: {
-				userId: 1,
+				userId: session?.userId,
 				title: body.title,
 				description: body.description,
 				status: 'pending',
@@ -167,12 +172,12 @@ taskRoute.post(
 								where: {
 									userId_name: {
 										// userId と name の複合ユニークキー（同一ユーザーで同名タグは1つ）
-										userId: 1,
+										userId: session.userId,
 										name: tagName,
 									},
 								},
 								create: {
-									userId: 1,
+									userId: session.userId,
 									name: tagName,
 									color: '000000',
 								},
@@ -270,13 +275,13 @@ taskRoute.patch(
 									// ユーザーごとの 同名タグが存在するかを複合ユニークキーで判定
 									where: {
 										userId_name: {
-											userId: 1,
+											userId: session.userId,
 											name: tagName,
 										},
 									},
 									// 無ければ tag を新しく作成
 									create: {
-										userId: 1,
+										userId: session.userId,
 										name: tagName,
 										color: '000000',
 									},

@@ -14,6 +14,7 @@ app
 		'/api/*',
 		cors({
 			origin: ['http://localhost:5173'], // 許可するオリジン（必要に応じて追加）
+			allowMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
 		})
 	)
 	// サブルーターをパスにマウント
