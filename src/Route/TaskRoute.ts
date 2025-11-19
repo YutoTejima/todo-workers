@@ -1,58 +1,10 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import z from 'zod';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient, Session } from '@prisma/client';
-
-// Hono のコンテキストで使用する変数の型定義
-interface Variables {
-	prisma: PrismaClient;
-	session?: Session;
-}
+import { Variables } from '..';
 
 // タスク系 API をまとめるサブルーター
 export const taskRoute = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-// taskRoute で共通して実行するミドルウェア
-taskRoute.use('/*', async (context, next) => {
-	// Hyperdrive の接続情報を使用して Prisma を初期化
-	const adapter = new PrismaPg({ connectionString: context.env.HYPERDRIVE.connectionString });
-	const prisma = new PrismaClient({ adapter });
-
-	// 初期化した Prisma を context に格納して使えるようにする
-	context.set('prisma', prisma);
-
-	await next();
-});
-
-// 認証ミドルウェア
-taskRoute.use('/*', async (context, next) => {
-	// Authorization ヘッダーからアクセストークンを作成
-	const accessToken = context.req.header('Authorization')?.split(' ').pop();
-
-	// アクセストークンが無ければ401エラーを返す
-	if (!accessToken) {
-		return context.json({ error: 'Unauthorized' }, 401);
-	}
-
-	// Prisma クライアントを取得
-	const prisma = context.get('prisma');
-
-	// アクセストークンに対応するセッションを作成
-	const session = await prisma.session.findUnique({
-		where: { id: accessToken },
-	});
-
-	// セッションが泣ければ401エラーを返す
-	if (!session) {
-		return context.json({ error: 'Unauthorized' }, 401);
-	}
-
-	// 初期化した session を context に格納して使えるようにする
-	context.set('session', session);
-
-	await next();
-});
 
 // タスク一覧取得 API
 // - タスク本体に加えて、多対多の中間テーブル taskTags と、その先の tag も同時に取得

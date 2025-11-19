@@ -1,31 +1,11 @@
 import { zValidator } from '@hono/zod-validator';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@prisma/client';
 import { Hono } from 'hono';
 import z from 'zod';
 import { stretchHash } from '../hash';
-
-// Hono のコンテキストで使用する変数の型定義
-// - context.set('prisma', ...) / context.get('prisma') で受け渡すための型を定義
-interface Variables {
-	prisma: PrismaClient;
-}
+import { Variables } from '..';
 
 // ユーザー作成 API をまとめるためのサブルーター
-
 export const userRoute = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-// userRoute で共通して実行するミドルウェア
-userRoute.use('/*', async (context, next) => {
-	// Hyperdrive の接続情報を使用して Prisma を初期化
-	const adapter = new PrismaPg({ connectionString: context.env.HYPERDRIVE.connectionString });
-	const prisma = new PrismaClient({ adapter });
-
-	// 初期化した Prisma を context に格納して使えるようにする
-	context.set('prisma', prisma);
-
-	await next();
-});
 
 // ユーザー登録API
 userRoute.post(
@@ -70,6 +50,10 @@ userRoute.post(
 		});
 
 		// ユーザーを HTTPレスポンスで返却
-		return context.json(user);
+		return context.json({
+			id: user.id,
+			email: user.email,
+			createdAt: user.createdAt,
+		});
 	}
 );

@@ -1,33 +1,17 @@
 import { zValidator } from '@hono/zod-validator';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@prisma/client';
 import { Hono } from 'hono';
-import z from 'zod';
+import z, { email } from 'zod';
 import { stretchHash } from '../hash';
+import { Variables } from '..';
 
 // Hono のコンテキストで使用する変数の型定義
 // - context.set('prisma', ...) / context.get('prisma') で受け渡すキーと型を定義
 // - これにより context.get('prisma') の戻り値が PrismaClient 型として保証される
-interface Variables {
-	prisma: PrismaClient;
-}
 
 // 認証系 API をまとめるためのサブルーター
 // - Bindings: Env は Cloudflare Workers の環境変数・バインディングの型
 // - Variables は上で定義した context.set/get 用の型（今回 prisma を共有）
 export const authRoute = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-// authRoute で共通して実行するミドルウェア
-authRoute.use('/*', async (context, next) => {
-	// Hyperdrive の接続情報を使用して Prisma を初期化
-	const adapter = new PrismaPg({ connectionString: context.env.HYPERDRIVE.connectionString });
-	const prisma = new PrismaClient({ adapter });
-
-	// 初期化した Prisma を context に格納して使えるようにする
-	context.set('prisma', prisma);
-
-	await next();
-});
 
 // ログイン API
 // - 入力（email, password）を Zod で検証（不正なら自動で 400）
@@ -131,4 +115,36 @@ authRoute.delete('/logout', async (context) => {
 
 	// ログアウト成功のメッセージを返す
 	return context.json({ message: 'Logged out succesfully' });
+});
+
+// 認可されているユーザーの情報を取得する API
+authRoute.get('/me', async (context) => {
+	// セッションを取得
+	const session = context.get('session');
+
+	// セッションがなければ 401
+	if (!session) {
+		return context.json({ error: 'Unauthorized' }, 401);
+	}
+
+	// ｐrisma を取得
+	const prisma = context.get('prisma');
+
+	// ユーザーを取得
+	const user = await prisma.user.findUnique({
+		where: {
+			id: session.userId,
+		},
+	});
+
+	// ユーザーがなければ 401
+	if (!user) {
+		return context.json({ error: 'Unauthorized' }, 401);
+	}
+
+	return context.json({
+		id: user.id,
+		email: user.email,
+		createdAt: user.createdAt,
+	});
 });
