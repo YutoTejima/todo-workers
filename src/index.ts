@@ -40,7 +40,7 @@ app.use('/api/*', async (context, next) => {
 	await next();
 });
 
-// 認証ミドルウェア
+// 認可ミドルウェア
 app.use('/api/*', async (context, next) => {
 	// Authorization ヘッダーからアクセストークンを作成
 	const accessToken = context.req.header('Authorization')?.split(' ').pop();
@@ -57,6 +57,17 @@ app.use('/api/*', async (context, next) => {
 	const session = await prisma.session.findUnique({
 		where: { id: accessToken },
 	});
+
+	// 期限を確認する
+	if (session && session.expiresAt < new Date()) {
+		await prisma.session.delete({
+			where: {
+				id: session.id,
+			},
+		});
+
+		return next();
+	}
 
 	// 初期化した session を context に格納して使えるようにする
 	context.set('session', session ?? undefined);
