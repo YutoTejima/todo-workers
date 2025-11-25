@@ -54,12 +54,12 @@ app.use('/api/*', async (context, next) => {
 	const prisma = context.get('prisma');
 
 	// アクセストークンに対応するセッションを作成
-	const session = await prisma.session.findUnique({
-		where: { id: accessToken },
+	const session = await prisma.session.findFirst({
+		where: { accessToken },
 	});
 
 	// 期限を確認する
-	if (session && session.expiresAt < new Date()) {
+	if (session && session.accessTokenExpiresAt < new Date()) {
 		await prisma.session.delete({
 			where: {
 				id: session.id,

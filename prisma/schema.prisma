@@ -13,11 +13,17 @@ datasource db {
 }
 
 model Session {
-  id        String   @id @default(uuid())
-  userId    Int      @db.Integer
-  createdAt DateTime @default(now())
-  expiresAt DateTime
-  user      User     @relation(fields: [userId], references: [id])
+  id                    Int      @id @default(autoincrement())
+  userId                Int      @db.Integer
+  accessToken           String   @db.VarChar(36)
+  accessTokenExpiresAt  DateTime
+  refreshToken          String   @db.VarChar(36)
+  refreshTokenExpiresAt DateTime
+  createdAt             DateTime @default(now())
+  user                  User     @relation(fields: [userId], references: [id])
+
+  @@index([accessToken])
+  @@index([refreshToken])
 }
 
 model User {

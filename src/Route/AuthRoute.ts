@@ -66,8 +66,10 @@ authRoute.post(
 		const session = await prisma.session.create({
 			data: {
 				userId: user.id,
-				// expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-				expiresAt: new Date(Date.now() + 10 * 1000), // 10 seconds
+				accessToken: crypto.randomUUID(),
+				accessTokenExpiresAt: new Date(Date.now() + 1 * 60 * 60 * 1000), // 1 hour
+				refreshToken: crypto.randomUUID(),
+				refreshTokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
 			},
 		});
 
@@ -75,7 +77,10 @@ authRoute.post(
 		return context.json({
 			id: user.id,
 			email: user.email,
-			accessToken: session.id,
+			accessToken: session.accessToken,
+			accessTokenExpiresAt: session.accessTokenExpiresAt,
+			refreshToken: session.refreshToken,
+			refreshTokenExpiresAt: session.refreshTokenExpiresAt,
 		});
 	}
 );
@@ -96,10 +101,8 @@ authRoute.delete('/logout', async (context) => {
 	const prisma = context.get('prisma');
 
 	// アクセストークンに対応するセッションを検索
-	const session = await prisma.session.findUnique({
-		where: {
-			id: accessToken,
-		},
+	const session = await prisma.session.findFirst({
+		where: { accessToken },
 	});
 
 	// セッションが無ければ401エラーを返す
@@ -110,12 +113,61 @@ authRoute.delete('/logout', async (context) => {
 	// セッションを削除してログアウト
 	await prisma.session.delete({
 		where: {
-			id: accessToken,
+			id: session.id,
 		},
 	});
 
 	// ログアウト成功のメッセージを返す
 	return context.json({ message: 'Logged out succesfully' });
+});
+
+// リフレッシュトークンを使用してアクセストークンを更新
+authRoute.post('/refresh', zValidator('json', z.object({ refreshToken: z.string().min(1) })), async (context) => {
+	const body = context.req.valid('json');
+
+	if (!body.refreshToken) {
+		return context.json({ error: 'Unauthorized' });
+	}
+
+	const prisma = context.get('prisma');
+
+	// リフレッシュトークンを使用してセッションを取得
+	const session = await prisma.session.findFirst({
+		where: {
+			refreshToken: body.refreshToken,
+		},
+	});
+
+	if (!session) {
+		return context.json({ error: 'Unauthorized' }, 401);
+	}
+
+	// リフレッシュトークンの期限を確認
+	if (session.refreshTokenExpiresAt < new Date()) {
+		await prisma.session.delete({
+			where: { id: session.id },
+		});
+
+		return context.json({ error: 'Unauthorized' }, 401);
+	}
+
+	// アクセストークンを更新
+	const newSession = await prisma.session.update({
+		where: { id: session.id },
+		data: {
+			accessToken: crypto.randomUUID(),
+			accessTokenExpiresAt: new Date(Date.now() + 1 * 60 * 60 * 1000), // 1 hours
+			refreshToken: crypto.randomUUID(),
+			refreshTokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+		},
+	});
+
+	return context.json({
+		accessToken: newSession.accessToken,
+		accessTokenExpiresAt: newSession.accessTokenExpiresAt,
+		refreshToken: newSession.refreshToken,
+		refreshTokenExpiresAt: newSession.refreshTokenExpiresAt,
+	});
 });
 
 // 認可されているユーザーの情報を取得する API

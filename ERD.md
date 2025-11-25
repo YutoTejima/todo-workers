@@ -9,10 +9,13 @@
 ```mermaid
 erDiagram
 "Session" {
-  String id PK
+  Int id PK
   Int userId FK
+  String(36) accessToken
+  DateTime accessTokenExpiresAt
+  String(36) refreshToken
+  DateTime refreshTokenExpiresAt
   DateTime createdAt
-  DateTime expiresAt
 }
 "User" {
   Int id PK
@@ -54,8 +57,11 @@ Properties as follows:
 
 - `id`:
 - `userId`:
+- `accessToken`:
+- `accessTokenExpiresAt`:
+- `refreshToken`:
+- `refreshTokenExpiresAt`:
 - `createdAt`:
-- `expiresAt`:
 
 ### `User`
 
